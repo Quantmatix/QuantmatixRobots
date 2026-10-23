@@ -1,5 +1,4 @@
-﻿using NodaTime;
-using Quantmatix.Shared;
+﻿using Quantmatix.Shared;
 using Quantmatix.Shared.DAO;
 using Quantmatix.Shared.Diagnostic;
 using Quantmatix.Shared.Enums;
@@ -9,13 +8,11 @@ using Telegram.Bot.Polling;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 using Telegram.Bot.Types.ReplyMarkups;
+using User = Quantmatix.Shared.Entity.Auth.User;
 
 namespace Quantmatix.Robots;
 
 public class TelegramManager(SharedDI sharedDI, TelegramClient telegramClient, QMLogger logger, WebsiteDBUnit websiteDBUnit) {
-    //TODO Get the user id from Telegram linked with our id somehow....
-    private const int userId = 1;
-
     /// <summary>
     /// Starts listening for messages
     /// </summary>
@@ -59,10 +56,10 @@ public class TelegramManager(SharedDI sharedDI, TelegramClient telegramClient, Q
             var parts = query.Data!.Split("_");
             switch (parts[0]) {
                 case "subscribe":
-                    await HandleSubscribe(int.Parse(parts[1]), (PeriodEnum)int.Parse(parts[2]));
+                    await HandleSubscribe(update, int.Parse(parts[1]), (PeriodEnum)int.Parse(parts[2]));
                     break;
                 case "unsubscribe":
-                    await HandleUnsubscribe(int.Parse(parts[1]), (PeriodEnum)int.Parse(parts[2]));
+                    await HandleUnsubscribe(update, int.Parse(parts[1]), (PeriodEnum)int.Parse(parts[2]));
                     break;
                 default:
                     throw new Exception($"Unhandled callback:{parts[0]}");
@@ -84,20 +81,91 @@ public class TelegramManager(SharedDI sharedDI, TelegramClient telegramClient, Q
 #if DEBUG
         Console.WriteLine($"Telegram > {message.Date}:{message.From}:{message.Text}, Id:{message.Id}, MessageId:{message.MessageId}, MessageThreadId:{message.MessageThreadId}");
 #endif
-        if (message.Text != null) {
-            switch (message.Text.ToLower()) {
-                case "/subscribe_ticker":
-                    await SubscribeTicker(message);
+        if (message.Text != null && message.Text.StartsWith("/")) {
+            var text = message.Text!;
+            if (text.StartsWith("/start")) {
+                //The token is the part after the start
+                await CheckStart(message, text);
+            } else if (text.Equals("/subscribe_ticker")) {
+                await SubscribeTicker(message);
+            } else if (text.Equals("/unsubscribe_ticker")) {
+                await UnsubscribeTicker(message);
+            } else {
+                await logger.LogWarning($"Unsupported message:{text}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets the user Id from the message information
+    /// </summary>
+    /// <param name="update"></param>
+    /// <returns></returns>
+    /// <exception cref="NotImplementedException"></exception>
+    private async Task<User> GetUserFromMessageDetail(Update update) {
+        var telegramId = update.Message?.Contact?.UserId;
+        if (telegramId == null) {
+            throw new Exception("No telegram id found");
+        }
+
+        var user = await websiteDBUnit.UserDAO.GetByTelegramId(telegramId.Value.ToString());
+        if (user == null) {
+            throw new Exception($"No telegram user found by id:{user}");
+        }
+
+        return user;
+    }
+
+    private async Task CheckStart(Message message, string text) {
+        var telegramId = message.From?.Id;
+        if (telegramId != null) {
+            var parts = text.Split(" ", StringSplitOptions.RemoveEmptyEntries);
+            switch (parts.Length) {
+                case 1:
+                    //Just an empty start command, do nothing
                     break;
-                case "/unsubscribe_ticker":
-                    await UnsubscribeTicker(message);
+                case 2:
+                    //2nd param should be a one time user link token
+                    var token = parts[1];
+
+                    var userApiKey = await websiteDBUnit.UserApiKeyDAO.GetByApiKey(token);
+                    if (userApiKey == null) {
+                        await logger.LogWarning($"Someone is trying to login with a token code that doesn't exist:{token}");
+                    } else if (userApiKey.ExpiryDate != null && userApiKey.ExpiryDate < DateTime.UtcNow) {
+                        //This token is expired, they can't use it
+                        await logger.LogWarning($"Someone is trying to login with an expired token code:{userApiKey.ApiKey}");
+                    } else if (userApiKey.MaxUses != null && userApiKey.MaxUses <= userApiKey.UseCount) {
+                        //This token is expired, they can't use it
+                        await logger.LogWarning($"Someone is trying to login with an token code they've used too many times:{userApiKey.ApiKey}");
+                    } else {
+                        //The token is valid, track it was used
+                        await websiteDBUnit.UserApiKeyDAO.TrackUseById(userApiKey.Id);
+                        var user = (await websiteDBUnit.UserDAO.GetById(userApiKey.UserId))!;
+
+                        //Track this user links with this WhatsApp if we don't have it already
+                        await websiteDBUnit.UserDAO.UpdateTelegramIdById(userApiKey.UserId, telegramId.ToString());
+                        await logger.LogWarning($"User:{user.Id} : {user.Email} has linked their telegramId:{telegramId}");
+
+                        await telegramClient.Client.SendMessage(message.Chat.Id, $"Hi {user.FirstName} {user.LastName} - you're now connected with your Quantmatix account - let's get to the Signals!");
+                    }
+
+                    break;
+                default:
+                    await logger.LogWarning($"Unsupported /start message:{text}");
                     break;
             }
         }
     }
 
     private InlineKeyboardButton CreateCallbackForTickerAndPeriod(string action, int tickerId, string ticker, PeriodEnum period) {
-        return InlineKeyboardButton.WithCallbackData($"{ticker} / {EnumUtils.GetAbbreviatedNameAttribute(period)}", $"{action}_{tickerId}_{(int)period}");
+        var button = InlineKeyboardButton.WithCallbackData(
+            $"{ticker} / {EnumUtils.GetAbbreviatedNameAttribute(period)}",
+            $"{action}_{tickerId}_{(int)period}"
+        );
+
+        button.Style = KeyboardButtonStyle.Danger;
+
+        return button;
     }
 
     private InlineKeyboardMarkup CreateKeyboardMapForTickers(string action) {
@@ -136,11 +204,15 @@ public class TelegramManager(SharedDI sharedDI, TelegramClient telegramClient, Q
         Console.WriteLine($"Sent > Unsubscribe message:{optionMessage.Id}");
     }
 
-    private async Task HandleUnsubscribe(int tickerId, PeriodEnum period) {
-        await websiteDBUnit.UserTickerWatchDAO.UpdateTelegram(userId, tickerId, period, false);
+    private async Task HandleUnsubscribe(Update update, int tickerId, PeriodEnum period) {
+        var user = await GetUserFromMessageDetail(update);
+
+        await websiteDBUnit.UserTickerWatchDAO.UpdateTelegram(user.Id, tickerId, period, false);
     }
 
-    private async Task HandleSubscribe(int tickerId, PeriodEnum period) {
-        await websiteDBUnit.UserTickerWatchDAO.UpdateTelegram(userId, tickerId, period, true);
+    private async Task HandleSubscribe(Update update, int tickerId, PeriodEnum period) {
+        var user = await GetUserFromMessageDetail(update);
+
+        await websiteDBUnit.UserTickerWatchDAO.UpdateTelegram(user.Id, tickerId, period, true);
     }
 }
