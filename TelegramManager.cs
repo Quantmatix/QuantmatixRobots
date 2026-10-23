@@ -103,7 +103,7 @@ public class TelegramManager(SharedDI sharedDI, TelegramClient telegramClient, Q
     /// <returns></returns>
     /// <exception cref="NotImplementedException"></exception>
     private async Task<User> GetUserFromMessageDetail(Update update) {
-        var telegramId = update.Message?.Contact?.UserId;
+        var telegramId = update.CallbackQuery?.From.Id;
         if (telegramId == null) {
             throw new Exception("No telegram id found");
         }
