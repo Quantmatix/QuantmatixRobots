@@ -6,6 +6,8 @@
     <OutputType>Exe</OutputType>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <RootNamespace>Quantmatix.Robots</RootNamespace>
+    <Configurations>Debug;Release;QA</Configurations>
   </PropertyGroup>
 
   <ItemGroup>
@@ -20,6 +22,18 @@
 
   <ItemGroup>
     <ProjectReference Include="..\QuantmatixShared\QuantmatixShared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="appsettings.debug.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="appsettings.qa.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
 </Project>
