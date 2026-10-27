@@ -16,17 +16,33 @@ jobs:
       contents: read #This is required for actions/checkout
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout QuantmatixRobots
+        uses: actions/checkout@v4
+        with:
+          path: QuantmatixRobots
+
+      - name: Checkout QuantmatixShared
+        uses: actions/checkout@v4
+        with:
+          repository: Quantmatix/QuantmatixShared
+          token: ${{ secrets.QUANTMATIX_SHARED_TOKEN }}
+          path: QuantmatixShared
 
       - name: Set up .NET Core
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.x'
 
-      - name: Build with dotnet
+      - name: Build QuantmatixShared
+        working-directory: QuantmatixShared
+        run: dotnet build --configuration Release
+
+      - name: Build QuantmatixRobots
+        working-directory: QuantmatixRobots
         run: dotnet build --configuration Release
 
       - name: dotnet publish
+        working-directory: QuantmatixRobots
         run: dotnet publish -c Release -o "${{env.DOTNET_ROOT}}/myapp"
 
       - name: Upload artifact for deployment job
@@ -62,4 +78,3 @@ jobs:
           app-name: 'QuantmatixRobotsQA'
           slot-name: 'Production'
           package: .
-          
