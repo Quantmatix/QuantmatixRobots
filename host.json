@@ -1,12 +1,4 @@
 {
-  "version": "2.0",
-  "functionTimeout": "24:00:00",
-  "logging": {
-    "applicationInsights": {
-      "samplingSettings": {
-        "isEnabled": true,
-        "excludedTypes": "Request"
-      }
-    }
-  }
+    "version": "2.0",
+    "telemetryMode": "OpenTelemetry"
 }
