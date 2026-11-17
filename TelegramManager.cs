@@ -1,6 +1,7 @@
 ﻿using Quantmatix.Shared;
 using Quantmatix.Shared.DAO;
 using Quantmatix.Shared.Diagnostic;
+using Quantmatix.Shared.Entity.Telegram;
 using Quantmatix.Shared.Enums;
 using Quantmatix.Shared.Services;
 using Telegram.Bot;
@@ -12,7 +13,7 @@ using User = Quantmatix.Shared.Entity.Auth.User;
 
 namespace Quantmatix.Robots;
 
-public class TelegramManager(SharedDI sharedDI, TelegramClient telegramClient, QMLogger logger, WebsiteDBUnit websiteDBUnit) {
+public class TelegramManager(TelegramClient telegramClient, QMLogger logger, WebsiteDBUnit websiteDBUnit) {
     /// <summary>
     /// Starts listening for messages
     /// </summary>
@@ -65,7 +66,10 @@ public class TelegramManager(SharedDI sharedDI, TelegramClient telegramClient, Q
                     throw new Exception($"Unhandled callback:{parts[0]}");
             }
 
-            await telegramClient.Client.SendMessage(query.Message!.Chat, $"User {query.From} clicked on {query.Data}");
+            await telegramClient.SendMessage(new TelegramMessage {
+                ChatId = query.Message!.Chat,
+                Text = $"User {query.From} clicked on {query.Data}"
+            });
         } else {
             throw new NotImplementedException();
         }
@@ -146,7 +150,10 @@ public class TelegramManager(SharedDI sharedDI, TelegramClient telegramClient, Q
                         await websiteDBUnit.UserDAO.UpdateTelegramIdById(userApiKey.UserId, telegramId.ToString());
                         await logger.LogWarning($"User:{user.Id} : {user.Email} has linked their telegramId:{telegramId}");
 
-                        await telegramClient.Client.SendMessage(message.Chat.Id, $"Hi {user.FirstName} {user.LastName} - you're now connected with your Quantmatix account - let's get to the Signals!");
+                        await telegramClient.SendMessage(new TelegramMessage {
+                            ChatId = message.Chat.Id,
+                            Text = $"Hi {user.FirstName} {user.LastName} - you're now connected with your Quantmatix account - let's get to the Signals!"
+                        });
                     }
 
                     break;
@@ -186,21 +193,21 @@ public class TelegramManager(SharedDI sharedDI, TelegramClient telegramClient, Q
 
     private async Task SubscribeTicker(Message message) { 
         //Send the message with options to subscribe
-        var optionMessage = await telegramClient.Client.SendMessage(
-            chatId: message.From!.Id,
-            text: "Select which instrument would you like to subscribe",
-            replyMarkup: CreateKeyboardMapForTickers("subscribe")
-        );
+        var optionMessage = await telegramClient.SendMessage(new TelegramMessage {
+            ChatId = message.From!.Id,
+            Text = "Select which instrument would you like to subscribe",
+            ReplyMarkup = CreateKeyboardMapForTickers("subscribe")
+        });
         Console.WriteLine($"Sent > Subscribe message:{optionMessage.Id}");
     }
 
     private async Task UnsubscribeTicker(Message message) { 
         //Send the message with options to subscribe
-        var optionMessage = await telegramClient.Client.SendMessage(
-            chatId: message.From!.Id,
-            text: "Select which instrument would you like to unsubscribe",
-            replyMarkup: CreateKeyboardMapForTickers("unsubscribe")
-        );
+        var optionMessage = await telegramClient.SendMessage(new TelegramMessage {
+            ChatId = message.From!.Id,
+            Text = "Select which instrument would you like to unsubscribe",
+            ReplyMarkup = CreateKeyboardMapForTickers("unsubscribe")
+        });
         Console.WriteLine($"Sent > Unsubscribe message:{optionMessage.Id}");
     }
 
